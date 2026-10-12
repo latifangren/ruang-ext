@@ -1,4 +1,4 @@
-import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { formatTime } from './format.ts'
 import type { Polled } from './polling.ts'
 import type { GatewayState, Source } from './types.ts'
@@ -14,7 +14,50 @@ export function RuntimeBadge({ source }: { source?: Source<GatewayState> }) {
 }
 
 export function LoadingState({ message }: { message: string }) {
-  return <section className="empty-state loading-state" aria-busy="true"><h2>Loading</h2><p>{message}</p></section>
+  return <section className="empty-state loading-state" aria-busy="true"><h2>Loading</h2><p>{message}</p><Skeleton variant="rows" count={3}/></section>
+}
+
+/** Placeholder blocks shown while read-only data is on its way. Decorative only: the
+ *  surrounding view stays responsible for announcing status via aria-busy. */
+export function Skeleton({ variant = 'line', count = 1, className = '' }: { variant?: 'tile' | 'rows' | 'line'; count?: number; className?: string }) {
+  const classes = className ? ` ${className}` : ''
+  if (variant === 'tile') {
+    // display: contents on the wrapper so a grid parent lays the tiles out directly.
+    return <div className={`skeleton-tiles${classes}`} aria-hidden="true">{Array.from({ length: count }, (_, index) => <div className="skeleton skeleton-tile" key={index}/>)}</div>
+  }
+  if (variant === 'rows') {
+    return <div className={`skeleton-rows${classes}`} aria-hidden="true">{Array.from({ length: count }, (_, index) => <div className={`skeleton skeleton-row${index === count - 1 ? ' short' : ''}`} key={index}/>)}</div>
+  }
+  return <div className={`skeleton skeleton-line${classes}`} aria-hidden="true"/>
+}
+
+/** Animates a number from its previous value (or 0) to the target over ~800ms.
+ *  Returns the target immediately when the viewer prefers reduced motion, and
+ *  starts at the target on first render so server markup matches the client. */
+export function useCountUp(value: number, opts?: { duration?: number }): number {
+  const [display, setDisplay] = useState(value)
+  const previous = useRef(value)
+  const reduceMotion = useRef<boolean | undefined>(undefined)
+  const duration = opts?.duration ?? 800
+  useEffect(() => {
+    if (reduceMotion.current === undefined) {
+      reduceMotion.current = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    }
+    const from = previous.current
+    previous.current = value
+    if (reduceMotion.current || from === value) { setDisplay(value); return }
+    let frame = 0
+    const start = performance.now()
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / duration)
+      const eased = 1 - Math.pow(1 - t, 3)
+      setDisplay(from + (value - from) * eased)
+      if (t < 1) frame = requestAnimationFrame(step)
+    }
+    frame = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(frame)
+  }, [value, duration])
+  return display
 }
 
 export function EmptyState({ title, children }: { title: string; children: ReactNode }) {

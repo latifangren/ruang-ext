@@ -10,6 +10,16 @@ export function formatTime(iso: string | undefined): string {
   return Number.isFinite(time) ? new Date(time).toLocaleTimeString() : iso
 }
 
+/** Short relative freshness label: "synced 12s ago", "synced 3m ago", "synced 1h ago". */
+export function formatRelativeTime(timestampMs: number | undefined, nowMs: number = Date.now()): string {
+  if (timestampMs === undefined || !Number.isFinite(timestampMs)) return '—'
+  const seconds = Math.floor(Math.max(0, nowMs - timestampMs) / 1000)
+  if (seconds < 60) return `synced ${seconds}s ago`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `synced ${minutes}m ago`
+  return `synced ${Math.floor(minutes / 60)}h ago`
+}
+
 export function formatDateTime(value: string | undefined): string {
   if (!value) return '—'
   const time = Date.parse(value)
