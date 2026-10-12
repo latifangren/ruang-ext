@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges" role="img" aria-label="Ruang office icon">
+  <rect width="16" height="16" fill="#101311"/>
+  <rect x="3" y="3" width="10" height="11" fill="#1a211c"/>
+  <rect x="3" y="3" width="10" height="2" fill="#263129"/>
+  <rect x="5" y="6" width="2" height="2" fill="#f2b16b"/>
+  <rect x="9" y="6" width="2" height="2" fill="#788c7c"/>
+  <rect x="5" y="9" width="2" height="2" fill="#788c7c"/>
+  <rect x="9" y="9" width="2" height="2" fill="#f2b16b"/>
+  <rect x="7" y="12" width="2" height="2" fill="#101311"/>
+  <rect x="7" y="12" width="2" height="2" fill="none" stroke="#f2b16b" stroke-width="0.5"/>
+</svg>
