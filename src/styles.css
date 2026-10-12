@@ -580,6 +580,8 @@ button.hud-chip:hover { border-color: var(--accent); }
 .panel-toggle { backdrop-filter: blur(6px); background: color-mix(in srgb, var(--surface) 82%, transparent); border: 1px solid var(--border-strong); border-radius: 4px; color: var(--text); cursor: pointer; font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .06em; padding: 7px 12px; }
 .panel-toggle:hover, .panel-toggle.active { border-color: var(--accent); }
 .panel-toggle.active { background: var(--active-bg); color: var(--active-text); }
+/* Tribe Mode marker: only rendered while the 3D view is active. */
+.tribe-mode-chip { align-self: center; border: 1px dashed var(--border-strong); border-radius: 4px; color: var(--text-muted); font: 10px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; letter-spacing: .14em; padding: 7px 10px; white-space: nowrap; }
 
 /* One panel for crew, statistics (the former Dashboard) and activity. */
 aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transparent); border: 1px solid var(--border-strong); border-radius: 8px; bottom: 12px; box-shadow: 0 16px 40px #0007; display: flex; flex-direction: column; padding: 0; position: absolute; right: 12px; top: 56px; width: min(400px, calc(100% - 24px)); z-index: 5; }

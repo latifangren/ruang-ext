@@ -22,3 +22,15 @@ export function agentLook(id: string): AgentLook {
   const hash = hashName(id)
   return { hair: HAIR[hash % HAIR.length], skin: SKIN[(hash >>> 4) % SKIN.length], shirt: SHIRT[(hash >>> 8) % SHIRT.length], pants: PANTS[(hash >>> 12) % PANTS.length] }
 }
+
+const FUR = ['#6b4a2f', '#5f4028', '#75553a', '#68492e', '#6e4f33', '#5a3d27']
+const DARK_HAIR = ['#17120e', '#241a12', '#2f2318', '#100d0a']
+
+/**
+ * Tribe Mode: the 3D scene dresses agents in fur and hide (shirt becomes the fur
+ * wrap, pants a dark hide). The 2D pixel-art view is untouched, so agentLook stays.
+ */
+export function tribeLook(id: string): AgentLook {
+  const hash = hashName(id)
+  return { hair: DARK_HAIR[hash % DARK_HAIR.length], skin: SKIN[(hash >>> 4) % SKIN.length], shirt: FUR[(hash >>> 8) % FUR.length], pants: '#3d2f22' }
+}
