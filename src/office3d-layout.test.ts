@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AISLE_Z, BUILDING, DESKS, ENTRANCE_X, IDLE_ROUTE, IDLE_STOPS, IDLE_STOP_MS, LOUNGE_LANE_X, LOUNGE_SEATS, MEETING_TABLE, PAN_BOUNDS, createLayout, idlePlan, meetingSeat, SIDEWALK_Z, clampTarget, idleStop, placementFor, walkPath, walkPath3, FLOOR_HEIGHT, STAIRS, BALCONY, floorOf, type Vec3 } from './office3d-layout.ts'
+import { AISLE_Z, BUILDING, COMPOUND_PAD, DESKS, ENTRANCE_X, IDLE_ROUTE, IDLE_STOPS, IDLE_STOP_MS, LOUNGE_LANE_X, LOUNGE_SEATS, MEETING_TABLE, PAN_BOUNDS, createLayout, idlePlan, meetingSeat, SIDEWALK_Z, clampTarget, idleStop, placementFor, walkPath, walkPath3, FLOOR_HEIGHT, STAIRS, BALCONY, floorOf, type Vec3 } from './office3d-layout.ts'
 import type { OfficeStation } from './types.ts'
 
 const station = (overrides: Partial<OfficeStation>): OfficeStation => ({
@@ -56,6 +56,9 @@ describe('idle agents', () => {
   it('keeps every idle wander spot inside the tribe compound', () => {
     const layout = createLayout(3)
     const { minX, maxX, minZ, maxZ } = layout.building
+    // Spots live in the palisade yard (COMPOUND_PAD around the building); the sleeping
+    // floor (beds and the loft walkway) stays on the building footprint.
+    const pad = COMPOUND_PAD + 0.5
     expect(IDLE_STOPS.map((stop) => stop.key)).toEqual(['tidur', 'api', 'gudang', 'gerbang', 'menara', 'loteng'])
     for (const stop of IDLE_STOPS) {
       expect(stop.label.length).toBeGreaterThan(0)
@@ -63,16 +66,16 @@ describe('idle agents', () => {
       for (const { position } of stop.spots) {
         const [x, y, z] = position
         if (y > FLOOR_HEIGHT / 2) {
-          // Sleeping floor: on the slab above the compound.
+          // Sleeping floor: on the stilt-house walkway above the compound.
           expect(x).toBeGreaterThanOrEqual(minX - 0.5)
           expect(x).toBeLessThanOrEqual(maxX + 0.5)
           expect(z).toBeGreaterThanOrEqual(minZ - 0.5)
           expect(z).toBeLessThanOrEqual(maxZ + 0.5)
         } else {
-          expect(x).toBeGreaterThanOrEqual(minX - 0.5)
-          expect(x).toBeLessThanOrEqual(maxX + 0.5)
-          expect(z).toBeGreaterThanOrEqual(minZ - 0.5)
-          expect(z).toBeLessThanOrEqual(maxZ + 0.5)
+          expect(x).toBeGreaterThanOrEqual(minX - pad)
+          expect(x).toBeLessThanOrEqual(maxX + pad)
+          expect(z).toBeGreaterThanOrEqual(minZ - pad)
+          expect(z).toBeLessThanOrEqual(maxZ + pad)
         }
       }
     }

@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
+import { useMemo, useRef } from 'react'
 import * as THREE from 'three'
+import { useFrame } from '@react-three/fiber'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import type { Vec3 } from '../office3d-layout.ts'
 
@@ -44,8 +46,27 @@ function Group({ position = [0, 0, 0], rotation = 0, scale = 1, children }: { po
 
 /** A low-poly tree for the forest and the meadow. */
 export function Tree({ position, size = 1 }: { position: Vec3; size?: number }) {
+  // The foliage sways almost imperceptibly; the trunk stays put. Still under
+  // prefers-reduced-motion.
+  const foliage = useRef<THREE.Group>(null)
+  const calm = useMemo(
+    () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    [],
+  )
+  const phase = useMemo(() => {
+    const [x, , z] = position
+    return ((x * 12.9898 + z * 78.233) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2)
+  }, [position])
+  useFrame(({ clock }) => {
+    if (calm || !foliage.current) return
+    const t = clock.elapsedTime
+    foliage.current.rotation.z = Math.sin(t * 0.9 + phase) * 0.025
+    foliage.current.rotation.x = Math.cos(t * 0.7 + phase * 1.3) * 0.018
+  })
   return <Group position={position} scale={size}>
     <Cyl position={[0, 0.9, 0]} radius={0.16} top={0.12} height={1.8} color="#6b4a32" roughness={0.9}/>
-    {[[0, 2.2, 0, 1], [0.5, 1.9, 0.2, 0.7], [-0.45, 2.0, -0.2, 0.75], [0.1, 2.7, 0.1, 0.7]].map(([x, y, z, r]) => <mesh key={`${x}${y}`} position={[x, y, z]} castShadow><icosahedronGeometry args={[r, 1]}/><meshStandardMaterial color="#3f7a3c" roughness={0.9} flatShading/></mesh>)}
+    <group ref={foliage}>
+      {[[0, 2.2, 0, 1], [0.5, 1.9, 0.2, 0.7], [-0.45, 2.0, -0.2, 0.75], [0.1, 2.7, 0.1, 0.7]].map(([x, y, z, r]) => <mesh key={`${x}${y}`} position={[x, y, z]} castShadow><icosahedronGeometry args={[r, 1]}/><meshStandardMaterial color="#3f7a3c" roughness={0.9} flatShading/></mesh>)}
+    </group>
   </Group>
 }
