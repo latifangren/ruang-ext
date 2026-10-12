@@ -91,6 +91,49 @@ const BASE_MIN_X = -9.5
 const BASE_SCENE_WIDTH = 28.7
 const CAMERA_OFFSET_BASE: Vec3 = [-3.9, 15.2, 18.8]
 
+/** How far the palisade stands off the building rect: the tribe compound's yard. */
+export const COMPOUND_PAD = 3
+
+/** Hut row along the back of the compound, right of the work area (desks never pass x = -2). */
+export function hutCenters(building: OfficeLayout['building'], deskCount: number): { x: number; z: number }[] {
+  const { maxX, minZ } = building
+  const count = Math.min(4, Math.max(2, Math.ceil(deskCount / 2)))
+  const x0 = 1.5
+  const x1 = maxX - 2.5
+  const backZ = minZ + 2.0
+  return Array.from({ length: count }, (_, index) => ({
+    x: count === 1 ? (x0 + x1) / 2 : x0 + (index * (x1 - x0)) / (count - 1),
+    z: backZ,
+  }))
+}
+
+/** Storage corner: front-left of the compound, clear of desks, huts and the gate path. */
+export function storageCorner(building: OfficeLayout['building']): { x: number; z: number } {
+  return { x: building.minX + 2.4, z: building.maxZ - 2.4 }
+}
+
+/** The gate's x on the front palisade. */
+export function gateX(building: OfficeLayout['building']): number {
+  const { minX, maxX } = building
+  return Math.min(Math.max(ENTRANCE_X, minX + 2.4), maxX - 2.4)
+}
+
+/** Watchtower base: front-right inside the palisade. */
+export function watchtowerPos(building: OfficeLayout['building']): { x: number; z: number } {
+  return { x: building.maxX + COMPOUND_PAD - 2.2, z: building.maxZ + COMPOUND_PAD - 2.2 }
+}
+
+/** Seats around the campfire, facing it. Shared by the idle plan and the log stools. */
+export function fireRingSpots(building: OfficeLayout['building']): { x: number; z: number; facing: number }[] {
+  const fire = campfirePosition({ building } as OfficeLayout)
+  return [0.25, 0.75, 1.25, 1.75].map((t) => {
+    const angle = t * Math.PI * 2
+    const x = fire[0] + 1.7 * Math.cos(angle)
+    const z = fire[2] + 1.7 * Math.sin(angle)
+    return { x, z, facing: Math.atan2(fire[0] - x, fire[2] - z) }
+  })
+}
+
 /**
  * Where and how an agent is. `pose` lying (bed, hammock: `height` is the surface) or sitting on
  * the floor (lesehan); otherwise standing, or sitting on a chair when `seated`.
@@ -126,36 +169,24 @@ export const bedSpot = ([x, , z]: Vec3, label?: string): Placement => upstairs(x
  * no two share a spot while free ones remain. All spots are inside the tribe compound (or on the
  * sleeping floor) — nothing references the old office props.
  */
-function idleStops(building: OfficeLayout['building'], beds: Vec3[], deskCount: number): IdleStop[] {
-  const { minX, maxX, minZ, maxZ } = building
-  const fire = campfirePosition({ building } as OfficeLayout)
-  const [fireX, , fireZ] = fire
-  const gateX = Math.min(Math.max(ENTRANCE_X, minX + 2.4), maxX - 2.4)
-  // Hut row along the back wall (mirrors the TribeCompound layout in environment.tsx).
-  const hutCount = Math.min(4, Math.max(2, Math.ceil(deskCount / 2)))
-  const hutX = (index: number) => minX + 2.7 + (index * (maxX - minX - 5.4)) / (hutCount - 1)
-  const backZ = minZ + 2.0
-  const lastHutX = hutX(hutCount - 1)
+function idleStops(building: OfficeLayout['building'], beds: Vec3[]): IdleStop[] {
+  const gx = gateX(building)
+  const storage = storageCorner(building)
+  const tower = watchtowerPos(building)
   const bedXs = beds.map(([x]) => x)
   const loftX = (Math.max(...bedXs) + Math.min(...bedXs)) / 2
-  const fireRing: [number, number, number][] = [0.25, 0.75, 1.25, 1.75].map((t) => {
-    const angle = t * Math.PI * 2
-    const x = fireX + 1.7 * Math.cos(angle)
-    const z = fireZ + 1.7 * Math.sin(angle)
-    return [x, z, Math.atan2(fireX - x, fireZ - z)]
-  })
   return [
     { key: 'tidur', label: 'Tidur di gubuk', spots: beds.map((bed) => bedSpot(bed)) },
-    { key: 'api', label: 'Berkumpul dekat api unggun', spots: fireRing.map(([x, z, facing]) => spot(x, z, facing, true)) },
+    { key: 'api', label: 'Berkumpul dekat api unggun', spots: fireRingSpots(building).map(({ x, z, facing }) => spot(x, z, facing, true)) },
     { key: 'gudang', label: 'Menata perbekalan di gudang', spots: [
-      spot(lastHutX - 3.1, backZ + 3.4, Math.PI),
-      spot(lastHutX - 1.5, backZ + 3.2, Math.PI),
+      spot(storage.x - 1.4, storage.z + 1.4, Math.atan2(1.4, -1.4)),
+      spot(storage.x + 1.4, storage.z + 1.2, Math.atan2(-1.4, -1.2)),
     ] },
     { key: 'gerbang', label: 'Berjaga di gerbang', spots: [
-      spot(gateX - 1.6, maxZ - 1.3, 0),
-      spot(gateX + 1.6, maxZ - 1.3, 0),
+      spot(gx - 1.6, building.maxZ + COMPOUND_PAD - 1.3, 0),
+      spot(gx + 1.6, building.maxZ + COMPOUND_PAD - 1.3, 0),
     ] },
-    { key: 'menara', label: 'Mengawasi dari menara', spots: [spot(maxX - 3.4, maxZ - 3.4, Math.PI / 4)] },
+    { key: 'menara', label: 'Mengawasi dari menara', spots: [spot(tower.x - 1.9, tower.z - 0.4, Math.PI / 4)] },
     { key: 'loteng', label: 'Beristirahat di loteng gubuk', spots: [upstairs(loftX, 1.8, Math.PI)] },
   ]
 }
@@ -184,7 +215,7 @@ export function createLayout(agentCount: number): OfficeLayout {
     gangCenterX: -11.4 + shift,
     camera: { target: [(sceneMinX + GAME_ROOM.maxX) / 2 - 0.15, 0.6, 0.2], offset: CAMERA_OFFSET_BASE.map((value) => value * scale) as Vec3 },
     pan: { minX: sceneMinX - 0.3, maxX: 17, minZ: -7, maxZ: 11 },
-    idleStops: idleStops(building, beds, deskCount),
+    idleStops: idleStops(building, beds),
   }
 }
 

@@ -227,6 +227,38 @@ export function dirtGround(repeat: [number, number]) {
   }, repeat)
 }
 
+/** Packed gravel for the footpath: warm dirt with pale pebbles. */
+export function gravel(repeat: [number, number]) {
+  return canvasTexture(`gravel-${repeat.join('x')}`, 256, 256, (ctx) => {
+    const rand = random(23)
+    ctx.fillStyle = '#8a6f4d'; ctx.fillRect(0, 0, 256, 256)
+    for (let i = 0; i < 700; i += 1) {
+      const g = 120 + Math.floor(rand() * 70)
+      ctx.fillStyle = `rgb(${g},${g - 12},${g - 30})`
+      ctx.beginPath(); ctx.arc(rand() * 256, rand() * 256, 1.5 + rand() * 3, 0, Math.PI * 2); ctx.fill()
+    }
+  }, repeat)
+}
+
+/** Rough wooden planks for stilt-house floors and walkways. */
+export function planks(repeat: [number, number]) {
+  return canvasTexture(`planks-${repeat.join('x')}`, 256, 256, (ctx) => {
+    const rand = random(29)
+    const tones = ['#8a6a42', '#7d5f3b', '#93714a', '#84643f']
+    for (let row = 0; row < 4; row += 1) {
+      ctx.fillStyle = tones[row % tones.length]; ctx.fillRect(0, row * 64, 256, 64)
+      ctx.fillStyle = 'rgba(40,24,12,0.5)'; ctx.fillRect(0, row * 64, 256, 3)
+      for (let g = 0; g < 4; g += 1) {
+        ctx.strokeStyle = 'rgba(60,38,20,0.25)'; ctx.lineWidth = 1.2
+        const y = row * 64 + 10 + rand() * 44
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(256, y + (rand() - 0.5) * 8); ctx.stroke()
+      }
+      ctx.fillStyle = 'rgba(40,24,12,0.55)'
+      ctx.fillRect((row * 97) % 256, row * 64, 3, 64)
+    }
+  }, repeat)
+}
+
 /** Draw a simple hand stencil (palm + fingers) in cave-painting style. */
 function drawHandStencil(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number, color: string, flip: boolean) {
   const s = flip ? -1 : 1

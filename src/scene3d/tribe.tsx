@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import type { Vec3 } from '../office3d-layout.ts'
 import { Cyl, RBox } from './props.tsx'
-import { bannerCloth, cavePainting, flameSprite, furTex, roughStone, thatch } from './textures.ts'
+import { bannerCloth, cavePainting, flameSprite, furTex, gravel, planks, roughStone, thatch } from './textures.ts'
 
 // Tribe Mode architecture: a prehistoric settlement built from primitives and the
 // procedural tribe textures. Earthy palette only, no modern or neon elements.
@@ -17,7 +17,7 @@ const STONE_CAP = '#6f675c'
 const THICK = 0.28
 
 /** Deterministic pseudo-random numbers so the settlement looks the same on every load. */
-function mulberry(seed: number) {
+export function mulberry(seed: number) {
   let a = seed >>> 0
   return () => {
     a |= 0; a = (a + 0x6d2b79f5) | 0
@@ -153,9 +153,13 @@ export function Campfire({ position, night = false }: { position: Vec3; night?: 
     light.current.intensity = (night ? 2.3 : 1.6) + flicker * 0.5
   })
   return <group position={position}>
-    {/* Scorched earth under the fire */}
+    {/* Scorched earth under the fire, plus a wider worn ring where the tribe gathers */}
     <mesh position={[0, 0.012, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-      <circleGeometry args={[0.95, 20]}/>
+      <circleGeometry args={[2.4, 24]}/>
+      <meshStandardMaterial color="#6b5638" roughness={1}/>
+    </mesh>
+    <mesh position={[0, 0.016, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+      <circleGeometry args={[1.5, 20]}/>
       <meshStandardMaterial color="#3a2c20" roughness={1}/>
     </mesh>
     {stones.map(({ x, z, size, key }) => <mesh key={key} position={[x, size * 0.45, z]} castShadow receiveShadow>
@@ -288,6 +292,62 @@ export function Ladder({ position, height, rotation = 0 }: { position: Vec3; hei
 }
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// StiltHut: a small rumah-panggung sleeping hut — timber posts, a plank floor at
+// `floorY`, low plank walls with the front left open (cut-away), a thatched
+// pyramid roof, a bamboo ladder and a torch on a ground post beside it
+// (emissive only; the scene's 3-light budget is untouched).
+
+export function StiltHut({ position, size = [2.6, 3.6], floorY = 2.8, night = false }: { position: Vec3; size?: [number, number]; floorY?: number; night?: boolean }) {
+  const [w, d] = size
+  const hw = w / 2
+  const hd = d / 2
+  const plankTex = useMemo(() => planks([2, 2]), [])
+  const thatchTex = useMemo(() => thatch([2, 2]), [])
+  const roofH = 1.15
+  const roofBase = floorY + 1.55
+  return <group position={position}>
+    {/* Stilts */}
+    {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) => <Cyl key={`${sx}${sz}`}
+      position={[sx * (hw - 0.15), floorY / 2, sz * (hd - 0.15)]}
+      radius={0.13} height={floorY} color={WOOD_DARK} roughness={0.95}/>)}
+    {/* Plank floor */}
+    <RBox position={[0, floorY - 0.09, 0]} size={[w, 0.18, d]} radius={0.02} color="#8a6a42" map={plankTex} roughness={0.95}/>
+    {/* Low walls: back and sides, front (+z) open so the bedrolls show */}
+    <RBox position={[0, floorY + 0.4, -hd + 0.06]} size={[w, 0.8, 0.12]} radius={0.02} color="#7d5f3b" map={plankTex} roughness={0.95}/>
+    {[-1, 1].map((s) => <RBox key={s} position={[s * (hw - 0.06), floorY + 0.4, 0]} size={[0.12, 0.8, d]} radius={0.02} color="#7d5f3b" map={plankTex} roughness={0.95}/>)}
+    {/* Roof posts + thatch pyramid */}
+    {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) => <Cyl key={`r${sx}${sz}`}
+      position={[sx * (hw - 0.15), floorY + 1.15, sz * (hd - 0.15)]}
+      radius={0.09} height={1.5} color={WOOD_DARK} roughness={0.95}/>)}
+    <mesh position={[0, roofBase + roofH / 2, 0]} rotation={[0, Math.PI / 4, 0]} castShadow>
+      <coneGeometry args={[(Math.max(w, d) / 2 + 0.5) * Math.SQRT2, roofH, 4, 1]}/>
+      <meshStandardMaterial map={thatchTex} color="#c9ab6b" roughness={1}/>
+    </mesh>
+    {/* Bamboo ladder up to the open front */}
+    <Ladder position={[hw - 0.5, 0, hd + 0.5]} height={floorY} rotation={Math.PI}/>
+    {/* Torch on a ground post beside the hut (emissive only) */}
+    <Torch position={[-(hw + 0.7), 0, hd * 0.3]} night={night}/>
+  </group>
+}
+
+/** BambooRail: a low railing along a ground segment at height `y`. */
+export function BambooRail({ from, to, y }: { from: [number, number]; to: [number, number]; y: number }) {
+  const [x1, z1] = from
+  const [x2, z2] = to
+  const length = Math.hypot(x2 - x1, z2 - z1)
+  const angle = Math.atan2(z2 - z1, x2 - x1)
+  const posts = Math.max(2, Math.round(length / 1.2) + 1)
+  return <group position={[(x1 + x2) / 2, 0, (z1 + z2) / 2]} rotation={[0, -angle, 0]}>
+    {Array.from({ length: posts }, (_, index) => {
+      const x = -length / 2 + (index * length) / (posts - 1)
+      return <Cyl key={index} position={[x, y + 0.35, 0]} radius={0.05} height={0.7} color={WOOD} roughness={0.95}/>
+    })}
+    <Cyl position={[0, y + 0.62, 0]} radius={0.045} height={length} rotation={[0, 0, Math.PI / 2]} color={WOOD_DARK} roughness={0.95}/>
+  </group>
+}
+
+// ---------------------------------------------------------------------------
 // FurBedroll: a flat fur sleeping mat with a rolled pillow.
 
 export function FurBedroll({ position, rotation = 0 }: { position: Vec3; rotation?: number }) {
@@ -320,6 +380,31 @@ export function Stool({ position, rotation = 0 }: { position: Vec3; rotation?: n
       const angle = (index / 3) * Math.PI * 2
       return <Cyl key={index} position={[Math.cos(angle) * 0.14, 0.18, Math.sin(angle) * 0.14]} radius={0.035} height={0.36} color={WOOD_DARK} roughness={0.95}/>
     })}
+  </group>
+}
+
+/** LogStool: a short horizontal log to sit on around the campfire. `rotation`
+ *  is the direction the sitter faces; the log lies across it. */
+export function LogStool({ position, rotation = 0 }: { position: Vec3; rotation?: number }) {
+  return <group position={[position[0], 0, position[2]]} rotation={[0, rotation + Math.PI / 2, 0]}>
+    <Cyl position={[0, 0.2, 0]} radius={0.2} height={0.85} rotation={[0, 0, Math.PI / 2]} color={WOOD_DARK} roughness={1}/>
+    <Cyl position={[0.44, 0.2, 0]} radius={0.2} height={0.03} rotation={[0, 0, Math.PI / 2]} color="#8a6a44" roughness={1}/>
+    <Cyl position={[-0.44, 0.2, 0]} radius={0.2} height={0.03} rotation={[0, 0, Math.PI / 2]} color="#8a6a44" roughness={1}/>
+  </group>
+}
+
+/** GravelPath: a flat strip of packed gravel between two ground points. */
+export function GravelPath({ from, to, width = 1.7 }: { from: [number, number]; to: [number, number]; width?: number }) {
+  const gravelTex = useMemo(() => gravel([6, 1]), [])
+  const [x1, z1] = from
+  const [x2, z2] = to
+  const length = Math.hypot(x2 - x1, z2 - z1)
+  const angle = Math.atan2(z2 - z1, x2 - x1)
+  return <group position={[(x1 + x2) / 2, 0, (z1 + z2) / 2]} rotation={[0, -angle, 0]}>
+    <mesh position={[0, 0.015, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+      <planeGeometry args={[length, width]}/>
+      <meshStandardMaterial map={gravelTex} roughness={1}/>
+    </mesh>
   </group>
 }
 
@@ -389,16 +474,27 @@ export function HideRack({ position, rotation = 0 }: { position: Vec3; rotation?
   </group>
 }
 
-/** Banner: a tall pole with a woven bannerCloth panel hanging from a top bar. */
+/** Banner: a tall pole with a woven bannerCloth panel hanging from a top bar.
+ *  The cloth sways gently (still under prefers-reduced-motion). */
 export function Banner({ position, rotation = 0 }: { position: Vec3; rotation?: number }) {
   const cloth = useMemo(() => bannerCloth(), [])
+  const calm = useMemo(reducedMotion, [])
+  const clothRef = useRef<THREE.Group>(null)
+  useFrame(({ clock }) => {
+    if (calm || !clothRef.current) return
+    const t = clock.elapsedTime
+    clothRef.current.rotation.y = Math.sin(t * 1.4) * 0.14
+    clothRef.current.rotation.x = Math.sin(t * 0.9 + 1) * 0.05
+  })
   return <group position={position} rotation={[0, rotation, 0]}>
     <Cyl position={[0, 1.5, 0]} radius={0.08} height={3} color={WOOD_DARK} roughness={0.95}/>
     <Cyl position={[0, 2.86, 0]} radius={0.045} height={1.3} rotation={[0, 0, Math.PI / 2]} color={WOOD} roughness={0.95}/>
-    <mesh position={[0, 2.05, 0]} castShadow>
-      <planeGeometry args={[1, 1.5]}/>
-      <meshStandardMaterial map={cloth} roughness={1} side={THREE.DoubleSide}/>
-    </mesh>
+    <group ref={clothRef} position={[0, 2.82, 0]}>
+      <mesh position={[0, -0.75, 0]} castShadow>
+        <planeGeometry args={[1, 1.5]}/>
+        <meshStandardMaterial map={cloth} roughness={1} side={THREE.DoubleSide}/>
+      </mesh>
+    </group>
   </group>
 }
 
