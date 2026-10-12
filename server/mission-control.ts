@@ -1,4 +1,5 @@
 import { execFile as execFileCallback } from 'node:child_process'
+import { join } from 'node:path'
 import { promisify } from 'node:util'
 
 const execFile = promisify(execFileCallback)
@@ -453,11 +454,13 @@ function describeFailure(error: unknown): CommandError {
 async function systemRun(file: string, args: string[], options: RunOptions = {}): Promise<string> {
   const started = Date.now()
   const command = [file, ...args].join(' ')
+  const homeDir = process.env.HOME || '/home/ubuntu'
+  const userPath = [join(homeDir, '.local/bin'), join(homeDir, '.hermes/bin'), process.env.PATH].filter(Boolean).join(':')
   try {
     const { stdout } = await execFile(file, args, {
       timeout: COMMAND_TIMEOUT_MS,
       maxBuffer: 16 * 1024 * 1024,
-      env: { ...process.env, NO_COLOR: '1', TERM: 'dumb', COLUMNS: '200', PYTHONIOENCODING: 'utf-8' },
+      env: { ...process.env, HOME: homeDir, PATH: userPath, NO_COLOR: '1', TERM: 'dumb', COLUMNS: '200', PYTHONIOENCODING: 'utf-8' },
     })
     recordCommand({ command, ok: true, durationMs: Date.now() - started, at: new Date(started).toISOString() })
     return stdout
