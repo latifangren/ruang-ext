@@ -5,7 +5,7 @@ import { usePolling } from '../polling.ts'
 import { formatCompact, formatDateTime, formatNumber } from '../format.ts'
 import type { Page } from '../routes.ts'
 import type { ActivitySnapshot, ChannelSnapshot, DashboardSnapshot, OfficeRoom, OfficeSnapshot, OfficeStation, UsageSnapshot } from '../types.ts'
-import { LoadingState, SourceStatus } from '../ui.tsx'
+import { LoadingState, Skeleton, SourceStatus } from '../ui.tsx'
 import { CalendarOverlayView } from './Calendar.tsx'
 import { AgentFolder } from './Folders.tsx'
 import { AgentMemoryView } from './Memory.tsx'
@@ -14,6 +14,7 @@ import { TaskBoard } from './TaskBoard.tsx'
 import { formatCost } from '../usage.ts'
 import { RelockBar } from '../ProfileLock.tsx'
 import { TokenUsage } from './TokenUsage.tsx'
+import { OFFICE_PANEL_TOGGLE, OFFICE_VIEW_SWITCH } from '../CommandPalette.tsx'
 
 // The 3D view (three.js) is only downloaded when someone switches to it.
 const Office3D = lazy(() => import('./Office3D.tsx'))
@@ -173,6 +174,22 @@ export function Office({ dashboard, dashboardPending = false, onNavigate }: { da
     setView(next)
     try { window.localStorage.setItem('mc.officeView', next) } catch { /* storage may be blocked */ }
   }
+  // Lets the command palette (which lives in the App shell) drive the view and
+  // panel while the Office page is already mounted. Palette actions that
+  // navigate here first rely on the persisted localStorage values instead.
+  useEffect(() => {
+    const onTogglePanel = () => choosePanel(panel ? undefined : 'Crew')
+    const onSwitchView = (event: Event) => {
+      const next = (event as CustomEvent<{ view?: unknown }>).detail?.view
+      if (next === '2d' || next === '3d') chooseView(next)
+    }
+    window.addEventListener(OFFICE_PANEL_TOGGLE, onTogglePanel)
+    window.addEventListener(OFFICE_VIEW_SWITCH, onSwitchView)
+    return () => {
+      window.removeEventListener(OFFICE_PANEL_TOGGLE, onTogglePanel)
+      window.removeEventListener(OFFICE_VIEW_SWITCH, onSwitchView)
+    }
+  })
   const show3d = view === '3d' && webgl
   const select3d = (station: OfficeStation, trigger: HTMLElement | null) => { selectedTrigger.current = trigger; setSelectedName(station.name) }
   const counts = Object.fromEntries(ROOMS.map((item) => [item, office?.stations.filter((station) => station.room === item).length ?? 0])) as Record<OfficeRoom, number>
@@ -224,7 +241,7 @@ export function Office({ dashboard, dashboardPending = false, onNavigate }: { da
         {panel === 'Crew' && <>
           <SourceStatus source={office ? { availability: 'available', data: null } : undefined} fetchedAt={office?.fetchedAt} request={snapshot}/>
           <section className="office-summary"><p className="eyebrow">CREW SNAPSHOT</p><strong>{office?.summary.active ?? 0} active work</strong><span>{office?.summary.idle ?? 0} Idle (managed)</span><span>{office?.summary.unknown ?? 0} Unknown / {office?.summary.offline ?? 0} Offline</span><hr/><span>Gateways running: {office ? `${office.summary.gatewaysReachable} of ${office.summary.gatewaysDeclared}` : 'Not Available'}</span></section>
-          <div className="crew-list">{office?.stations.map(stationButton)}</div>
+          {office ? <div className="crew-list">{office.stations.map(stationButton)}</div> : <Skeleton variant="rows" count={6}/>}
           <small className="muted">Stations show only attributable work. Select one for its evidence and freshness.</small>
         </>}
         {panel === 'Stats' && <Stats dashboard={dashboard ?? null} pending={dashboardPending} onNavigate={onNavigate}/>}

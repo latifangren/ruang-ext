@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { formatTime } from './format.ts'
+import { formatRelativeTime } from './format.ts'
 import { Activity } from './pages/Activity.tsx'
 import { Agents } from './pages/Agents.tsx'
 import { Calendar } from './pages/Calendar.tsx'
@@ -16,7 +16,8 @@ import { LockScreen } from './LockScreen.tsx'
 import { API_VERSION } from './api-version.ts'
 import { RefreshContext, usePolling } from './polling.ts'
 import { usePreferences } from './preferences.ts'
-import { HOME, navigation, pageFromHash, pageSlug, type Page } from './routes.ts'
+import { HOME, navGroups, pageFromHash, pageIcons, pageSlug, type Page } from './routes.ts'
+import { CommandPalette, OFFICE_PANEL_TOGGLE, OFFICE_VIEW_SWITCH, type CommandItem } from './CommandPalette.tsx'
 import type { DashboardSnapshot } from './types.ts'
 
 function currentPage(): Page {
@@ -29,9 +30,18 @@ function Shell({ onRefresh, access, onAccessChange }: { onRefresh: () => void; a
   // The navigation is a drawer over the page, closed by default, like a game's menu.
   const [menuOpen, setMenuOpen] = useState(false)
   const menuButton = useRef<HTMLButtonElement>(null)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const paletteButton = useRef<HTMLButtonElement>(null)
+  const paletteOpener = useRef<HTMLElement | null>(null)
   const drawer = useRef<HTMLElement>(null)
   const dashboard = usePolling<DashboardSnapshot>('/api/dashboard', 15_000)
   const data = dashboard.status === 'ready' ? dashboard.data : null
+  // Re-renders only the relative sync label every 10s; it never triggers a refetch.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 10_000)
+    return () => clearInterval(id)
+  }, [])
   const health = usePolling<{ apiVersion?: number }>('/api/health', 60_000)
   const serverVersion = health.status === 'ready' ? health.data.apiVersion ?? 0 : health.status === 'failed' && health.httpStatus === 404 ? 0 : undefined
   const versionNotice = serverVersion === undefined || serverVersion === API_VERSION ? undefined
@@ -60,6 +70,30 @@ function Shell({ onRefresh, access, onAccessChange }: { onRefresh: () => void; a
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
   })
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== 'k' || (!event.ctrlKey && !event.metaKey) || event.altKey) return
+      if (paletteOpen) { event.preventDefault(); closePalette(); return }
+      const target = event.target as HTMLElement | null
+      if (target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return
+      event.preventDefault()
+      openPalette()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  })
+
+  const openPalette = () => {
+    paletteOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setPaletteOpen(true)
+  }
+  const closePalette = () => {
+    setPaletteOpen(false)
+    const opener = paletteOpener.current
+    paletteOpener.current = null
+    if (opener && document.contains(opener)) opener.focus()
+    else paletteButton.current?.focus()
+  }
 
   const closeMenu = () => {
     setMenuOpen(false)
@@ -72,20 +106,60 @@ function Shell({ onRefresh, access, onAccessChange }: { onRefresh: () => void; a
     setMenuOpen(false)
     window.scrollTo?.({ top: 0 })
   }
-  const syncLabel = data ? `SYNCED ${formatTime(data.fetchedAt)}${dashboard.status === 'ready' && dashboard.stale ? ' · STALE' : ''}` : dashboard.status === 'failed' ? 'API NOT AVAILABLE' : 'CONNECTING...'
+  const handleCommand = (item: CommandItem) => {
+    closePalette()
+    if (item.page) { navigate(item.page); return }
+    switch (item.id) {
+      case 'refresh': onRefresh(); return
+      case 'theme': toggleTheme(); return
+      case 'office-panel': {
+        // Office reads mc.officePanel on mount; if it is already mounted the
+        // event below toggles it live. Both paths end on the same value.
+        try {
+          const stored = window.localStorage.getItem('mc.officePanel')
+          window.localStorage.setItem('mc.officePanel', stored && stored !== 'closed' ? 'closed' : 'Crew')
+        } catch { /* storage may be blocked */ }
+        if (page !== 'Office') navigate('Office')
+        window.dispatchEvent(new CustomEvent(OFFICE_PANEL_TOGGLE))
+        return
+      }
+      case 'office-2d':
+      case 'office-3d': {
+        const view = item.id === 'office-2d' ? '2d' : '3d'
+        try { window.localStorage.setItem('mc.officeView', view) } catch { /* storage may be blocked */ }
+        if (page !== 'Office') navigate('Office')
+        window.dispatchEvent(new CustomEvent(OFFICE_VIEW_SWITCH, { detail: { view } }))
+        return
+      }
+      default: return
+    }
+  }
+  const syncLabel = data ? `${formatRelativeTime(Date.parse(data.fetchedAt), now)}${dashboard.status === 'ready' && dashboard.stale ? ' · STALE' : ''}` : dashboard.status === 'failed' ? 'API NOT AVAILABLE' : 'CONNECTING...'
 
   const alerts = (data && data.commands.failed > 0 ? 1 : 0)
   const content = page === 'Agents' ? <Agents runtime={data?.runtime ?? null} pending={dashboard.status === 'pending'}/> : page === 'Office' ? <Office dashboard={data} dashboardPending={dashboard.status === 'pending'} onNavigate={navigate}/> : page === 'Usage' ? <Usage/>: page === 'Task Board' ? <TaskBoard/> : page === 'Calendar' ? <Calendar/> : page === 'Activity' ? <Activity/> : page === 'Memory' ? <Memory onOpenFolders={() => navigate('Folders')}/> : page === 'Folders' ? <Folders/> : page === 'Settings' ? <Settings access={access} onAccessChange={onAccessChange}/> : <Logs/>
 
   return <div className={`app${page === 'Office' ? ' app-office' : ''}`}>
     {menuOpen && <div className="drawer-backdrop" onClick={closeMenu} aria-hidden="true"/>}
+    <CommandPalette open={paletteOpen} onClose={closePalette} onSelect={handleCommand}/>
     <aside id="app-sidebar" className="drawer" ref={drawer} hidden={!menuOpen} aria-label="Menu">
       <div className="drawer-head"><a className="brand" href="#/office" onClick={(event) => { event.preventDefault(); navigate(HOME) }}>RUANG<span>HERMES 3D</span></a><button type="button" className="icon-button" onClick={closeMenu} aria-label="Close menu" title="Close menu (Esc)">✕</button></div>
-      <nav aria-label="Main">{navigation.map((item) => <a href={`#/${pageSlug(item)}`} className={page === item ? 'active' : ''} aria-current={page === item ? 'page' : undefined} key={item} onClick={(event) => { event.preventDefault(); navigate(item) }}>{item}{item === 'Logs' && data && data.commands.failed > 0 && <span className="nav-badge" title="Failed CLI reads">{data.commands.failed}</span>}</a>)}</nav>
+      <nav aria-label="Main">{navGroups.map((group) => (
+        <div className="nav-group" key={group.label}>
+          <h2 className="nav-eyebrow">{group.label}</h2>
+          {group.pages.map((item) => (
+            <a href={`#/${pageSlug(item)}`} className={page === item ? 'active' : ''} aria-current={page === item ? 'page' : undefined} key={item} onClick={(event) => { event.preventDefault(); navigate(item) }}>
+              <span className="nav-icon" aria-hidden="true">{pageIcons[item]}</span>
+              <span className="nav-label">{item}</span>
+              {item === 'Logs' && data && data.commands.failed > 0 && <span className="nav-badge" title="Failed CLI reads">{data.commands.failed}</span>}
+            </a>
+          ))}
+        </div>
+      ))}</nav>
       <div className="sidebar-note"><span className="dot"/> READ-ONLY MODE</div>
       <small className="drawer-hint">Press M to open or close this menu</small>
     </aside>
-    <main><header><span className="header-title"><button type="button" ref={menuButton} className="icon-button menu-button" onClick={() => (menuOpen ? closeMenu() : setMenuOpen(true))} aria-controls="app-sidebar" aria-expanded={menuOpen} aria-label={menuOpen ? 'Close menu' : 'Open menu'} title="Menu (M)">☰{alerts > 0 && <span className="menu-alert" aria-label={`${alerts} alert${alerts === 1 ? '' : 's'} in the menu`}/>}</button><span>RUANG / {page.toUpperCase()}</span></span><span className="header-actions"><span className={`sync-label${dashboard.status === 'failed' ? ' text-bad' : ''}`}>{syncLabel}</span><button type="button" className="icon-button theme-toggle" onClick={toggleTheme} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>{theme === 'dark' ? '☀' : '☾'}</button><button type="button" className="refresh-button" onClick={onRefresh} aria-label="Refresh all sources">↻ REFRESH</button></span></header>
+    <main><header><span className="header-title"><button type="button" ref={menuButton} className="icon-button menu-button" onClick={() => (menuOpen ? closeMenu() : setMenuOpen(true))} aria-controls="app-sidebar" aria-expanded={menuOpen} aria-label={menuOpen ? 'Close menu' : 'Open menu'} title="Menu (M)">☰{alerts > 0 && <span className="menu-alert" aria-label={`${alerts} alert${alerts === 1 ? '' : 's'} in the menu`}/>}</button><span>RUANG / {page.toUpperCase()}</span></span><span className="header-actions"><span className={`sync-label${dashboard.status === 'failed' ? ' text-bad' : ''}`}>{syncLabel}</span><button type="button" ref={paletteButton} className="icon-button command-palette-button" onClick={openPalette} aria-haspopup="dialog" aria-label="Open command palette" title="Command palette (Ctrl+K)">⌘K</button><button type="button" className="icon-button theme-toggle" onClick={toggleTheme} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>{theme === 'dark' ? '☀' : '☾'}</button><button type="button" className="refresh-button" onClick={onRefresh} aria-label="Refresh all sources">↻ REFRESH</button></span></header>
       {versionNotice && <section className="notice version-notice" role="alert"><strong>Restart needed.</strong> {versionNotice}</section>}
       {content}
     </main></div>

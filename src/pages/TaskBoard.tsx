@@ -3,11 +3,33 @@ import { formatDateTime, orderedStatuses, statusTone } from '../format.ts'
 import { usePolling } from '../polling.ts'
 import { loadSnapshot, type RequestState } from '../request-state.ts'
 import type { Task, TaskBoardSnapshot, TaskDetailSnapshot } from '../types.ts'
-import { Dialog, EmptyState, PageTitle, SearchInput, SourceStatus, Unavailable } from '../ui.tsx'
+import { Dialog, EmptyState, PageTitle, SearchInput, Skeleton, SourceStatus, Unavailable } from '../ui.tsx'
 import { ProfileUnlock, RelockBar } from '../ProfileLock.tsx'
 import { agentPrivacy, useProfileLock } from '../profile-lock.ts'
 
 const UNASSIGNED = '(unassigned)'
+const COLLAPSE_PREFIX = 'mc.boardCollapsed.'
+
+/** Tiered priority chip tone: the board sorts higher priority numbers first, so >= 3 reads as high. */
+function priorityChipClass(priority: number): string {
+  return `chip ${priority >= 3 ? 'chip-priority-high' : priority >= 2 ? 'chip-priority-medium' : 'chip-priority-low'}`
+}
+
+/** Collapsed columns, persisted per status so the board keeps its shape across reloads. */
+function loadCollapsedColumns(): Record<string, boolean> {
+  const collapsed: Record<string, boolean> = {}
+  if (typeof localStorage === 'undefined') return collapsed
+  try {
+    for (let index = 0; index < localStorage.length; index++) {
+      const key = localStorage.key(index)
+      if (key?.startsWith(COLLAPSE_PREFIX)) collapsed[key.slice(COLLAPSE_PREFIX.length)] = localStorage.getItem(key) === '1'
+    }
+  } catch { /* storage unavailable: start with every column expanded */ }
+  return collapsed
+}
+
+/** Smooth sideways jumps, unless the user asked for reduced motion. */
+const scrollBehavior: ScrollBehavior = typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
 
 function Field({ label, value }: { label: string; value?: string | number }) {
   return value === undefined || value === '' ? null : <div><dt>{label}</dt><dd>{value}</dd></div>
@@ -33,7 +55,7 @@ export function TaskDetailDialog({ task, onClose, onOpenTask }: { task: Task; on
   return <Dialog labelledBy="task-detail-title" onClose={onClose} closeLabel={`Close details for ${task.title}`} className="task-detail">
     <p className="eyebrow">KANBAN TASK{task.board ? ` · ${task.board.toUpperCase()} BOARD` : ''}{task.id ? ` · ${task.id}` : ''}</p>
     <h2 id="task-detail-title">{detail?.title ?? task.title}</h2>
-    <div className="task-meta"><span className={`badge ${statusTone(status)}`}>{status}</span><span className={`chip ${task.assignee ? '' : 'chip-muted'}`}>{detail?.assignee ?? task.assignee ?? 'unassigned'}</span>{(detail?.priority ?? task.priority) ? <span className="chip chip-priority">P{detail?.priority ?? task.priority}</span> : null}</div>
+    <div className="task-meta"><span className={`badge ${statusTone(status)}`}>{status}</span><span className={`chip ${task.assignee ? '' : 'chip-muted'}`}>{detail?.assignee ?? task.assignee ?? 'unassigned'}</span>{(detail?.priority ?? task.priority) ? <span className={priorityChipClass(detail?.priority ?? task.priority ?? 0)}>P{detail?.priority ?? task.priority}</span> : null}</div>
     {locked && task.assignee ? <ProfileUnlock agent={task.assignee} minutes={lock?.unlockMinutes} compact/> : <>
     {privacy === 'unlocked' && task.assignee && <RelockBar agent={task.assignee} minutes={lock?.unlockMinutes ?? 15}/>}
     {state.status === 'pending' && task.id && <p className="muted">Loading task details…</p>}
@@ -68,11 +90,22 @@ export function TaskBoard() {
   const [assignee, setAssignee] = useState('all')
   const [board, setBoard] = useState('all')
   const [openTask, setOpenTask] = useState<Task | undefined>()
+  const [collapsedColumns, setCollapsedColumns] = useState<Record<string, boolean>>(loadCollapsedColumns)
   const trigger = useRef<HTMLButtonElement | null>(null)
   const boardRef = useRef<HTMLElement | null>(null)
   /** Scrolls the board sideways by about one column, or to a column. */
-  const scrollBoard = (direction: number) => boardRef.current?.scrollBy({ left: direction * 250, behavior: 'smooth' })
-  const showColumn = (status: string) => boardRef.current?.querySelector<HTMLElement>(`[data-status="${CSS.escape(status)}"]`)?.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' })
+  const scrollBoard = (direction: number) => boardRef.current?.scrollBy({ left: direction * 250, behavior: scrollBehavior })
+  const scrollToColumn = (status: string) => boardRef.current?.querySelector<HTMLElement>(`[data-status="${CSS.escape(status)}"]`)?.scrollIntoView({ behavior: scrollBehavior, inline: 'start', block: 'nearest' })
+  const toggleColumn = (status: string) => {
+    const next = !collapsedColumns[status]
+    setCollapsedColumns({ ...collapsedColumns, [status]: next })
+    try { localStorage.setItem(`${COLLAPSE_PREFIX}${status}`, next ? '1' : '0') } catch { /* storage unavailable */ }
+  }
+  /** Jumping to a collapsed column expands it first so the board-nav chips always reveal the tasks. */
+  const showColumn = (status: string) => {
+    if (collapsedColumns[status]) { toggleColumn(status); requestAnimationFrame(() => scrollToColumn(status)) }
+    else scrollToColumn(status)
+  }
   const closeTask = () => { setOpenTask(undefined); trigger.current?.focus() }
   const data = snapshot.status === 'ready' ? snapshot.data : undefined
   const tasks = data?.tasks
@@ -86,6 +119,7 @@ export function TaskBoard() {
   return <><PageTitle eyebrow="HERMES KANBAN" title="Task board">Live, read-only view of <code>hermes kanban list</code> across every Kanban board. Columns follow the Hermes board order; the board refreshes every 10 seconds.</PageTitle>
     <SourceStatus source={tasks} fetchedAt={data?.fetchedAt} request={snapshot}/><Unavailable source={tasks} request={snapshot}/>
     {data?.failedBoards && <p className="file-notice">Could not read the {data.failedBoards.join(', ')} board{data.failedBoards.length === 1 ? '' : 's'}; showing the others.</p>}
+    {snapshot.status === 'pending' && <section className="board" aria-label="Loading kanban board">{Array.from({ length: 4 }, (_, index) => <article key={index} className="column"><Skeleton variant="rows" count={4}/></article>)}</section>}
     {tasks?.availability === 'available' && (all.length === 0 ? <EmptyState title="No tasks">{multiBoard ? `None of the ${boards.length} Kanban boards has open tasks.` : 'Hermes returned an empty Kanban task list.'} Create one with <code>hermes kanban create</code>.</EmptyState> : <>
       <div className="toolbar"><SearchInput value={query} onChange={setQuery} label="Search tasks"/><label className="select-label">Assignee <select value={assignee} onChange={(event) => setAssignee(event.target.value)}><option value="all">All ({all.length})</option>{assignees.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>{multiBoard && <label className="select-label">Board <select value={board} onChange={(event) => setBoard(event.target.value)}><option value="all">All boards</option>{boards.map((item) => <option key={item.slug} value={item.slug}>{item.name}{item.current ? ' (current)' : ''}</option>)}</select></label>}<span className="toolbar-count">{visible.length} shown</span></div>
       <nav className="board-nav" aria-label="Kanban columns">
@@ -95,8 +129,9 @@ export function TaskBoard() {
       </nav>
       <section className="board" aria-label="Kanban board" ref={boardRef}>{columns.map((status) => {
         const items = visible.filter((task) => task.status === status).sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
-        return <article key={status} data-status={status} className={`column tone-border-${statusTone(status)}`} aria-label={`${status} column`}><header className="column-head"><p className="eyebrow">{status}</p><span className="column-count">{items.length}</span></header>
-          {items.length === 0 ? <p className="column-empty">—</p> : items.map((task) => <button type="button" className="task task-card" key={`${task.board ?? ''}-${task.status}-${task.id ?? task.title}`} onClick={(event) => { trigger.current = event.currentTarget; setOpenTask(task) }} aria-label={`${task.title}. ${task.status}. Open task details.`}><strong>{task.title}</strong><div className="task-meta">{task.id && <small>{task.id}</small>}{multiBoard && task.board && <span className="chip chip-muted">{task.board}</span>}<span className={`chip ${task.assignee ? '' : 'chip-muted'}`}>{task.assignee ?? 'unassigned'}</span>{task.priority ? <span className="chip chip-priority">P{task.priority}</span> : null}</div></button>)}
+        const collapsed = collapsedColumns[status] === true
+        return <article key={status} data-status={status} className={`column tone-border-${statusTone(status)}${collapsed ? ' collapsed' : ''}`} aria-label={`${status} column${collapsed ? ', collapsed' : ''}`}><header className="column-head"><button type="button" className="column-toggle" aria-expanded={!collapsed} aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${status} column`} title={`${collapsed ? 'Expand' : 'Collapse'} column`} onClick={() => toggleColumn(status)}>{collapsed ? '▸' : '▾'}</button><p className="eyebrow">{status}</p><span className="column-count">{items.length}</span></header>
+          {!collapsed && (items.length === 0 ? <p className="column-empty">—</p> : items.map((task) => <button type="button" className="task task-card" key={`${task.board ?? ''}-${task.status}-${task.id ?? task.title}`} onClick={(event) => { trigger.current = event.currentTarget; setOpenTask(task) }} aria-label={`${task.title}. ${task.status}.${task.priority ? ` Priority ${task.priority}.` : ''} Open task details.`}><strong>{task.title}</strong><div className="task-meta">{task.id && <small>{task.id}</small>}{multiBoard && task.board && <span className="chip chip-muted">{task.board}</span>}<span className={`chip ${task.assignee ? '' : 'chip-muted'}`}>{task.assignee ?? 'unassigned'}</span>{task.priority ? <span className={priorityChipClass(task.priority)} title={`Priority ${task.priority}`}>P{task.priority}</span> : null}</div></button>))}
         </article>
       })}</section>
     </>)}

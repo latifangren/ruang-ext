@@ -6,6 +6,7 @@ import { officeStateBadge } from '../office-state.ts'
 import { agentLook } from '../agents.ts'
 import { clampTarget, createLayout, FLOOR_HEIGHT, floorOf, GAME_ROOM, idlePlan, placementFor, walkPath3, type Floor, type OfficeLayout, type Placement, type Vec3 } from '../office3d-layout.ts'
 import { Environment } from '../scene3d/environment.tsx'
+import { DustParticles } from '../scene3d/dust.tsx'
 import { RBox, WorkDesk } from '../scene3d/props.tsx'
 import type { OfficeStation } from '../types.ts'
 
@@ -117,24 +118,33 @@ function Character({ station, placement, layout, floor, onSelect, anchor }: { st
 const legGeometry = new THREE.BoxGeometry(0.17, 0.62, 0.2).translate(0, -0.31, 0)
 const armGeometry = new THREE.BoxGeometry(0.12, 0.52, 0.14).translate(0, -0.26, 0)
 
+/** Label fade: full opacity within LABEL_FADE_NEAR of the camera, fading to LABEL_FADE_MIN far away. */
+const LABEL_FADE_NEAR = 26
+const LABEL_FADE_FAR = 46
+const LABEL_FADE_MIN = 0.25
+
 /**
  * Screen-space labels: each frame, project every anchor into the canvas and move its DOM label
  * there directly (no React re-render). Labels live outside the Canvas, so they unmount cleanly
- * and use the page's own styles and focus handling.
+ * and use the page's own styles and focus handling. Labels also fade with camera distance so a
+ * zoomed-out view doesn't turn into a wall of overlapping tags.
  */
 function LabelProjector({ anchors, labels }: { anchors: Registry<THREE.Object3D>; labels: Registry<HTMLElement> }) {
   const point = useMemo(() => new THREE.Vector3(), [])
+  const lastOpacity = useRef(new Map<string, number>())
   useFrame(({ camera, size }) => {
-    const projected: { element: HTMLElement; x: number; y: number; depth: number }[] = []
+    const projected: { key: string; element: HTMLElement; x: number; y: number; depth: number; distance: number }[] = []
     for (const [key, object] of anchors.current) {
       const element = labels.current.get(key)
       if (!element) continue
       let shown = true
       for (let node: THREE.Object3D | null = object; node; node = node.parent) if (!node.visible) { shown = false; break }
-      object.getWorldPosition(point).project(camera)
+      object.getWorldPosition(point)
+      const distance = point.distanceTo(camera.position)
+      point.project(camera)
       const visible = shown && point.z < 1 && Math.abs(point.x) <= 1.1 && Math.abs(point.y) <= 1.1
       element.style.visibility = visible ? 'visible' : 'hidden'
-      if (visible) projected.push({ element, x: ((point.x + 1) / 2) * size.width, y: ((1 - point.y) / 2) * size.height, depth: point.z })
+      if (visible) projected.push({ key, element, x: ((point.x + 1) / 2) * size.width, y: ((1 - point.y) / 2) * size.height, depth: point.z, distance })
     }
     // Nearest labels keep their spot; a farther label that would overlap one already placed is
     // lifted above it, so every agent stays readable and clickable.
@@ -155,6 +165,15 @@ function LabelProjector({ anchors, labels }: { anchors: Registry<THREE.Object3D>
       placed.push({ left, right, top: bottom - height, bottom })
       label.element.style.transform = `translate(${x}px, ${Math.max(bottom, height + 4)}px) translate(-50%, -100%)`
       label.element.style.zIndex = String(Math.round((1 - label.depth) * 10_000))
+      // Fade by camera distance (throttled: the DOM is only touched when the quantized
+      // opacity changes). The offline base mirrors `.agent-tag-3d.state-offline` in CSS.
+      const fade = Math.min(1, Math.max(0, (label.distance - LABEL_FADE_NEAR) / (LABEL_FADE_FAR - LABEL_FADE_NEAR)))
+      const base = label.element.classList.contains('state-offline') ? 0.7 : 1
+      const opacity = Math.round((base + fade * (LABEL_FADE_MIN - base)) * 100) / 100
+      if (lastOpacity.current.get(label.key) !== opacity) {
+        lastOpacity.current.set(label.key, opacity)
+        label.element.style.opacity = String(opacity)
+      }
     }
   })
   return null
@@ -320,9 +339,10 @@ export default function Office3D({ stations, onSelect }: { stations: OfficeStati
   return <div className="office-3d" ref={setKeyTarget} tabIndex={0} role="region" aria-label="3D office. Drag to rotate, right-drag or two fingers to pan, scroll to zoom, arrow keys pan when focused. Page Up and Page Down change floors." onKeyDown={(event) => {
     if (event.key === 'PageUp' || event.key === 'PageDown') { event.preventDefault(); setFloor(event.key === 'PageUp' ? 2 : 1) }
   }}>
-    <Canvas shadows dpr={[1, 2]} camera={{ position: [-3, 13, 16], fov: 40, near: 0.5, far: 150 }} gl={{ antialias: true }}>
+    <Canvas shadows dpr={[1, 2]} camera={{ position: [-3, 13, 16], fov: 40, near: 0.5, far: 150 }} gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.1 }}>
       <Lighting theme={theme}/>
       <Environment night={theme === 'dark'} layout={layout} floor={floor}/>
+      <DustParticles layout={layout}/>
       {floor === 1 && layout.desks.map((position, index) => <WorkDesk key={index} position={position} active={occupiedSeats.has(index + 1)} withChair/>)}
       {stations.map((station) => <Character key={station.id} station={station} placement={placement(station)} layout={layout} floor={floor} onSelect={onSelect} anchor={register(anchors, `agent-${station.id}`)}/>)}
       <LabelProjector anchors={anchors} labels={labels}/>

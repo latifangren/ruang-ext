@@ -1,6 +1,6 @@
 import { formatDateTime, formatNumber, orderedStatuses, statusTone } from '../format.ts'
 import type { DashboardSnapshot } from '../types.ts'
-import { EmptyState, LoadingState } from '../ui.tsx'
+import { EmptyState, Skeleton, useCountUp } from '../ui.tsx'
 import { TokenUsage } from './TokenUsage.tsx'
 import type { Page } from '../routes.ts'
 
@@ -8,13 +8,15 @@ function availableCount(source: { availability: string; total: number }, unit?: 
   return source.availability === 'available' ? `${formatNumber(source.total)}${unit ? ` ${unit}` : ''}` : 'Not Available'
 }
 
-function StatTile({ label, value, detail, onClick }: { label: string; value: string; detail?: string; onClick?: () => void }) {
-  return <button type="button" className="stat-tile" onClick={onClick} disabled={!onClick}><span>{label}</span><strong className={value === 'Not Available' ? 'na' : undefined}>{value}</strong>{detail && <small>{detail}</small>}</button>
+function StatTile({ label, value, detail, onClick, numeric }: { label: string; value: string; detail?: string; onClick?: () => void; numeric?: number }) {
+  const counted = useCountUp(numeric ?? 0)
+  const shown = numeric === undefined ? value : formatNumber(Math.round(counted))
+  return <button type="button" className="stat-tile" onClick={onClick} disabled={!onClick}><span>{label}</span><strong className={value === 'Not Available' ? 'na' : undefined}>{shown}</strong>{detail && <small>{detail}</small>}</button>
 }
 
 /** The operations overview (formerly the Dashboard page), shown in the Office panel's Stats tab. */
 export function Stats({ dashboard, pending = false, onNavigate }: { dashboard: DashboardSnapshot | null; pending?: boolean; onNavigate?: (page: Page) => void }) {
-  if (pending) return <LoadingState message="Reading runtime signals..."/>
+  if (pending) return <section className="stat-grid" aria-label="Loading statistics"><Skeleton variant="tile" count={8}/></section>
   if (!dashboard) return <EmptyState title="Not Available">The Ruang API could not be reached. Start it with <code>npm run dev</code>.</EmptyState>
   const { runtime, tasks, calendar, activity, knowledge, channels, office, commands } = dashboard
   const go = (page: Page) => onNavigate ? () => onNavigate(page) : undefined
@@ -27,12 +29,12 @@ export function Stats({ dashboard, pending = false, onNavigate }: { dashboard: D
     <section className="stat-grid" aria-label="Key statistics">
       <StatTile label="Gateways running" value={`${office.gatewaysReachable} / ${office.gatewaysDeclared}`} detail="Hermes profiles" onClick={go('Agents')}/>
       <StatTile label="Crew active" value={`${office.active} / ${office.declared}`} detail={`${office.idle} idle · ${office.offline} offline · ${office.unknown} unknown`} />
-      <StatTile label="Open tasks" value={tasks.availability === 'available' ? formatNumber(openTasks) : 'Not Available'} detail={tasks.availability === 'available' ? `${formatNumber(tasks.total)} total · ${tasks.byStatus.running ?? 0} running` : undefined} onClick={go('Task Board')}/>
-      <StatTile label="Scheduled jobs" value={availableCount(calendar)} detail={calendar.availability === 'available' ? `${calendar.active} active · ${calendar.paused} paused` : undefined} onClick={go('Calendar')}/>
-      <StatTile label="Recent sessions" value={availableCount(activity)} detail={channels.activeSessions !== undefined ? `${channels.activeSessions} active now` : 'Last 20 listed'} onClick={go('Activity')}/>
-      <StatTile label="Enabled skills" value={availableCount(knowledge)} detail={knowledge.availability === 'available' ? `${Object.keys(knowledge.byCategory).length} categories` : undefined} onClick={go('Folders')}/>
+      <StatTile label="Open tasks" value={tasks.availability === 'available' ? formatNumber(openTasks) : 'Not Available'} detail={tasks.availability === 'available' ? `${formatNumber(tasks.total)} total · ${tasks.byStatus.running ?? 0} running` : undefined} onClick={go('Task Board')} numeric={tasks.availability === 'available' ? openTasks : undefined}/>
+      <StatTile label="Scheduled jobs" value={availableCount(calendar)} detail={calendar.availability === 'available' ? `${calendar.active} active · ${calendar.paused} paused` : undefined} onClick={go('Calendar')} numeric={calendar.availability === 'available' ? calendar.total : undefined}/>
+      <StatTile label="Recent sessions" value={availableCount(activity)} detail={channels.activeSessions !== undefined ? `${channels.activeSessions} active now` : 'Last 20 listed'} onClick={go('Activity')} numeric={activity.availability === 'available' ? activity.total : undefined}/>
+      <StatTile label="Enabled skills" value={availableCount(knowledge)} detail={knowledge.availability === 'available' ? `${Object.keys(knowledge.byCategory).length} categories` : undefined} onClick={go('Folders')} numeric={knowledge.availability === 'available' ? knowledge.total : undefined}/>
       <StatTile label="Channels" value={availableCount(channels, 'configured')} detail={channels.availability === 'available' ? `${channels.connected} connected` : undefined} />
-      <StatTile label="CLI reads" value={formatNumber(commands.total)} detail={`${commands.failed} failed · ${commands.averageMs} ms avg`} onClick={go('Logs')}/>
+      <StatTile label="CLI reads" value={formatNumber(commands.total)} detail={`${commands.failed} failed · ${commands.averageMs} ms avg`} onClick={go('Logs')} numeric={commands.total}/>
     </section>
 
     <TokenUsage/>
