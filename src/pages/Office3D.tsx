@@ -3,11 +3,13 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, 
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { officeStateBadge } from '../office-state.ts'
-import { agentLook } from '../agents.ts'
-import { clampTarget, createLayout, FLOOR_HEIGHT, floorOf, GAME_ROOM, idlePlan, placementFor, walkPath3, type Floor, type OfficeLayout, type Placement, type Vec3 } from '../office3d-layout.ts'
+import { tribeLook } from '../agents.ts'
+import { campfirePosition, clampTarget, createLayout, FLOOR_HEIGHT, floorOf, GAME_ROOM, idlePlan, placementFor, walkPath3, type Floor, type OfficeLayout, type Placement, type Vec3 } from '../office3d-layout.ts'
 import { Environment } from '../scene3d/environment.tsx'
-import { DustParticles } from '../scene3d/dust.tsx'
-import { RBox, WorkDesk } from '../scene3d/props.tsx'
+import { EmberParticles } from '../scene3d/embers.tsx'
+import { RBox } from '../scene3d/props.tsx'
+import { furTex } from '../scene3d/textures.ts'
+import { StoneTable, Stool } from '../scene3d/tribe.tsx'
 import type { OfficeStation } from '../types.ts'
 
 // 3D view of the same Office snapshot the 2D view renders. Positions come from each station's
@@ -29,10 +31,11 @@ function Character({ station, placement, layout, floor, onSelect, anchor }: { st
   const rightLeg = useRef<THREE.Mesh>(null)
   const leftArm = useRef<THREE.Mesh>(null)
   const rightArm = useRef<THREE.Mesh>(null)
-  const colors = agentLook(station.id)
+  const colors = tribeLook(station.id)
   const offline = station.state === 'Offline'
   const unknown = station.state === 'Unknown'
   const tint = (color: string) => offline ? '#7b7f7d' : color
+  const fur = useMemo(() => furTex(), [])
   // Only the first placement is applied as a prop; later changes are walked to via the aisle.
   const [start] = useState<Vec3>(() => placement.position)
   const path = useRef<THREE.Vector3[]>([])
@@ -99,9 +102,16 @@ function Character({ station, placement, layout, floor, onSelect, anchor }: { st
     <group ref={body} onClick={(event) => { event.stopPropagation(); onSelect(station, null) }} onPointerOver={() => { document.body.style.cursor = 'pointer' }} onPointerOut={() => { document.body.style.cursor = '' }}>
       <mesh ref={leftLeg} position={[-0.11, 0.66, 0]} castShadow geometry={legGeometry}><meshStandardMaterial color={tint(colors.pants)} roughness={0.8}/></mesh>
       <mesh ref={rightLeg} position={[0.11, 0.66, 0]} castShadow geometry={legGeometry}><meshStandardMaterial color={tint(colors.pants)} roughness={0.8}/></mesh>
+      {/* Hide skirt over the waist */}
+      <mesh position={[0, 0.72, 0]} castShadow>
+        <cylinderGeometry args={[0.3, 0.4, 0.34, 12, 1, true]}/>
+        <meshStandardMaterial map={fur} color={tint('#ffffff')} roughness={1} side={THREE.DoubleSide}/>
+      </mesh>
       <RBox position={[0, 0.98, 0]} size={[0.48, 0.58, 0.3]} radius={0.07} color={tint(colors.shirt)} roughness={0.85}/>
       <mesh ref={leftArm} position={[-0.31, 1.2, 0]} castShadow geometry={armGeometry}><meshStandardMaterial color={tint(colors.shirt)} roughness={0.85}/></mesh>
       <mesh ref={rightArm} position={[0.31, 1.2, 0]} castShadow geometry={armGeometry}><meshStandardMaterial color={tint(colors.shirt)} roughness={0.85}/></mesh>
+      {/* Fur draped over one shoulder */}
+      <RBox position={[0.3, 1.31, 0]} size={[0.2, 0.09, 0.28]} radius={0.04} color={tint('#7a5a38')} map={fur} roughness={1}/>
       <RBox position={[0, 1.5, 0]} size={[0.4, 0.4, 0.37]} radius={0.08} color={tint(colors.skin)} roughness={0.7}/>
       <RBox position={[0, 1.72, -0.02]} size={[0.43, 0.13, 0.41]} radius={0.05} color={tint(colors.hair)} roughness={0.9}/>
       <RBox position={[0, 1.58, -0.19]} size={[0.43, 0.3, 0.06]} radius={0.03} color={tint(colors.hair)} roughness={0.9}/>
@@ -281,15 +291,15 @@ function Lighting({ theme }: { theme: 'dark' | 'light' }) {
   return <>
     <color attach="background" args={[day ? '#bfe0ef' : '#1a2335']}/>
     <fog attach="fog" args={[day ? '#bfe0ef' : '#1a2335', 38, 75]}/>
-    <hemisphereLight args={[day ? '#fff4e0' : '#7f95bd', day ? '#5d7a4c' : '#1e2620', day ? 1.1 : 0.32]}/>
-    <directionalLight position={[10, 16, 9]} intensity={day ? 2.4 : 0.75} color={day ? '#fff1d6' : '#ff9a5a'} castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004} shadow-camera-left={-16} shadow-camera-right={16} shadow-camera-top={16} shadow-camera-bottom={-16} shadow-camera-far={60}/>
+    <hemisphereLight args={[day ? '#fff4e0' : '#6f85ab', day ? '#5d7a4c' : '#1a221c', day ? 1.1 : 0.26]}/>
+    <directionalLight position={[10, 16, 9]} intensity={day ? 2.4 : 0.6} color={day ? '#fff1d6' : '#ff8a4a'} castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004} shadow-camera-left={-16} shadow-camera-right={16} shadow-camera-top={16} shadow-camera-bottom={-16} shadow-camera-far={60}/>
     <ambientLight intensity={day ? 0.35 : 0.14} color={day ? '#ffffff' : '#8fa4d8'}/>
   </>
 }
 
 const FLOORS: { floor: Floor; label: string; title: string }[] = [
-  { floor: 2, label: 'Kamar & Balkon', title: 'Lantai 2: bedroom, lesehan and balcony' },
-  { floor: 1, label: 'Kantor', title: 'Lantai 1: office, lounge, pantry and game room' },
+  { floor: 2, label: 'Kamar & Balkon', title: 'Lantai 2: gubuk tidur' },
+  { floor: 1, label: 'Kantor', title: 'Lantai 1: kampung suku' },
 ]
 const FLOOR_KEY = 'mc.officeFloor'
 const SLEEP_KEY = 'mc.officeSleep'
@@ -325,9 +335,9 @@ export default function Office3D({ stations, onSelect }: { stations: OfficeStati
   const now = useClock(2000)
   // One unlabeled desk per agent (hot desking); the building is sized for the crew.
   const layout = useMemo(() => createLayout(stations.length), [stations.length])
-  // Idle agents wander between the lounge, the game room, the pantry, the street food and
-  // lantai 2 (decorative only), spread so no two share a spot. With sleep mode on, every idle
-  // agent goes to bed upstairs instead.
+  // Idle agents wander between the campfire, the storage corner, the river bank,
+  // the watchtower and the sleeping longhouse (decorative only), spread so no two
+  // share a spot. With sleep mode on, every idle agent goes to bed upstairs instead.
   const idleSeats = stations.filter((station) => station.state === 'Idle' && station.room === 'Lounge').map((station) => station.seat)
   const plan = idlePlan(idleSeats, now, layout, sleepMode ? idleSeats : [])
   const wandering = (station: OfficeStation) => station.state === 'Idle' && station.room === 'Lounge' ? plan.get(station.seat) : undefined
@@ -335,15 +345,18 @@ export default function Office3D({ stations, onSelect }: { stations: OfficeStati
   const meetingOrder = stations.filter((station) => station.roomPosition === 'meeting-area').map((station) => station.id)
   const placement = (station: OfficeStation) => wandering(station)?.placement ?? placementFor(station, layout, Math.max(0, meetingOrder.indexOf(station.id)))
   const floorCount = (value: Floor) => stations.filter((station) => floorOf(placement(station).position) === value).length
-  const occupiedSeats = new Set(stations.filter((station) => station.room === 'Workspace' && station.roomPosition !== 'meeting-area' && station.state !== 'Offline').map((station) => station.seat))
-  return <div className="office-3d" ref={setKeyTarget} tabIndex={0} role="region" aria-label="3D office. Drag to rotate, right-drag or two fingers to pan, scroll to zoom, arrow keys pan when focused. Page Up and Page Down change floors." onKeyDown={(event) => {
+  return <div className="office-3d" ref={setKeyTarget} tabIndex={0} role="region" aria-label="3D tribe village. Drag to rotate, right-drag or two fingers to pan, scroll to zoom, arrow keys pan when focused. Page Up and Page Down change floors." onKeyDown={(event) => {
     if (event.key === 'PageUp' || event.key === 'PageDown') { event.preventDefault(); setFloor(event.key === 'PageUp' ? 2 : 1) }
   }}>
     <Canvas shadows dpr={[1, 2]} camera={{ position: [-3, 13, 16], fov: 40, near: 0.5, far: 150 }} gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.1 }}>
       <Lighting theme={theme}/>
       <Environment night={theme === 'dark'} layout={layout} floor={floor}/>
-      <DustParticles layout={layout}/>
-      {floor === 1 && layout.desks.map((position, index) => <WorkDesk key={index} position={position} active={occupiedSeats.has(index + 1)} withChair/>)}
+      <EmberParticles position={campfirePosition(layout)}/>
+      {floor === 1 && layout.desks.map((position, index) => <group key={index}>
+        <StoneTable position={position}/>
+        {/* The stool sits where agents take their seat (z - 0.75, facing the table), like the old office chair */}
+        <Stool position={[position[0], 0, position[2] - 0.75]}/>
+      </group>)}
       {stations.map((station) => <Character key={station.id} station={station} placement={placement(station)} layout={layout} floor={floor} onSelect={onSelect} anchor={register(anchors, `agent-${station.id}`)}/>)}
       <LabelProjector anchors={anchors} labels={labels}/>
       <Controls key={layout.deskCount} ref={view} panMode={panMode} keyTarget={keyTarget} layout={layout} elevation={floor === 2 ? FLOOR_HEIGHT : 0}/>

@@ -35,6 +35,16 @@ export const CARROM: Vec3 = [10.6, 0, -0.1]
 /** Walkway in front of the desks; agents walk along it between areas instead of through furniture. */
 export const AISLE_Z = 0.4
 export const MEETING_TABLE: Vec3 = [-5.2, 0, 2.2]
+/** Where the campfire burns: the meeting table's old spot when it fits inside the
+ * compound, else the centre. Shared with the ember particles so they rise from the
+ * actual fire. */
+export function campfirePosition(layout: OfficeLayout): Vec3 {
+  const { minX, maxX, minZ, maxZ } = layout.building
+  const [mtx, , mtz] = MEETING_TABLE
+  return mtx > minX + 2.5 && mtx < maxX - 2.5 && mtz > minZ + 2.5 && mtz < maxZ - 2.5
+    ? [mtx, 0, mtz]
+    : [(minX + maxX) / 2, 0, (minZ + maxZ) / 2]
+}
 /** The TV hangs on the back wall; the sofa faces it (backrest towards the aisle). */
 export const TV: Vec3 = [4.6, 0, -4.8]
 export const SOFA: Vec3 = [4.6, 0, -1.3]
@@ -110,37 +120,43 @@ const spot = (x: number, z: number, facing: number, seated = false, label?: stri
 const upstairs = (x: number, z: number, facing: number, extra: Partial<Placement> = {}): Placement => ({ position: [x, FLOOR_HEIGHT, z], facing, seated: false, ...extra })
 /** Lying in a bed: feet at the foot end, head on the pillow by the back wall. */
 export const bedSpot = ([x, , z]: Vec3, label?: string): Placement => upstairs(x, z + 0.95, 0, { pose: 'lie', height: 0.5, ...(label ? { label } : {}) })
-/** A spot given in a stall's own coordinates (as if unrotated), placed in the world. */
-function stallSpot(stall: Vec3, x: number, z: number, facing: number, seated = false): Placement {
-  const cos = Math.cos(STALL_ROTATION)
-  const sin = Math.sin(STALL_ROTATION)
-  return spot(stall[0] + x * cos + z * sin, stall[2] - x * sin + z * cos, facing + STALL_ROTATION, seated)
-}
 
 /**
  * Where idle agents spend their time. Each stop has a few spots; idlePlan spreads agents so that
- * no two share a spot while free ones remain.
+ * no two share a spot while free ones remain. All spots are inside the tribe compound (or on the
+ * sleeping floor) — nothing references the old office props.
  */
-function idleStops(building: OfficeLayout['building'], baksoCart: Vec3, kopiBike: Vec3, beds: Vec3[]): IdleStop[] {
-  const [tableX, , tableZ] = LESEHAN_TABLE
+function idleStops(building: OfficeLayout['building'], beds: Vec3[], deskCount: number): IdleStop[] {
+  const { minX, maxX, minZ, maxZ } = building
+  const fire = campfirePosition({ building } as OfficeLayout)
+  const [fireX, , fireZ] = fire
+  const gateX = Math.min(Math.max(ENTRANCE_X, minX + 2.4), maxX - 2.4)
+  // Hut row along the back wall (mirrors the TribeCompound layout in environment.tsx).
+  const hutCount = Math.min(4, Math.max(2, Math.ceil(deskCount / 2)))
+  const hutX = (index: number) => minX + 2.7 + (index * (maxX - minX - 5.4)) / (hutCount - 1)
+  const backZ = minZ + 2.0
+  const lastHutX = hutX(hutCount - 1)
+  const bedXs = beds.map(([x]) => x)
+  const loftX = (Math.max(...bedXs) + Math.min(...bedXs)) / 2
+  const fireRing: [number, number, number][] = [0.25, 0.75, 1.25, 1.75].map((t) => {
+    const angle = t * Math.PI * 2
+    const x = fireX + 1.7 * Math.cos(angle)
+    const z = fireZ + 1.7 * Math.sin(angle)
+    return [x, z, Math.atan2(fireX - x, fireZ - z)]
+  })
   return [
-    { key: 'tidur', label: 'Sleeping', spots: beds.map((bed) => bedSpot(bed)) },
-    { key: 'balkon', label: 'Relaxing on the balcony', spots: [
-      upstairs(BALCONY_TABLE[0] - 0.85, BALCONY_TABLE[2], Math.PI / 2, { seated: true }),
-      upstairs(BALCONY_TABLE[0] + 0.85, BALCONY_TABLE[2], -Math.PI / 2, { seated: true }),
-      upstairs(HAMMOCK[0] + 0.9, HAMMOCK[2], -Math.PI / 2, { pose: 'lie', height: 0.62, label: 'Napping in the hammock' }),
-      upstairs(7.9, BALCONY.maxZ - 0.45, 0, { label: 'Enjoying the view from the balcony' }),
+    { key: 'tidur', label: 'Tidur di gubuk', spots: beds.map((bed) => bedSpot(bed)) },
+    { key: 'api', label: 'Berkumpul dekat api unggun', spots: fireRing.map(([x, z, facing]) => spot(x, z, facing, true)) },
+    { key: 'gudang', label: 'Menata perbekalan di gudang', spots: [
+      spot(lastHutX - 3.1, backZ + 3.4, Math.PI),
+      spot(lastHutX - 1.5, backZ + 3.2, Math.PI),
     ] },
-    { key: 'lesehan', label: 'Lesehan upstairs', spots: [[-1, 0, Math.PI / 2], [1, 0, -Math.PI / 2], [0, -0.85, 0], [0, 0.85, Math.PI]].map(([dx, dz, facing]) => upstairs(tableX + dx, tableZ + dz, facing, { pose: 'floor' })) },
-    { key: 'lounge', label: 'Relaxing in the lounge', spots: LOUNGE_SEATS.map(([x, , z], index) => spot(x, z, LOUNGE_FACING[index], true)) },
-    { key: 'galon', label: 'Getting water from the galon', spots: [spot(8.35, -0.4, Math.PI / 2), spot(8.2, -1.05, 2.2), spot(8.2, 0.3, 1.1)] },
-    // On the gerobak's plastic stools, facing the cart.
-    { key: 'bakso', label: 'Eating bakso', spots: [stallSpot(baksoCart, 0.5, 1.1, Math.PI, true), stallSpot(baksoCart, -0.3, 1.2, Math.PI, true), stallSpot(baksoCart, 1.3, 0.9, -2.4)] },
-    { key: 'dapur', label: 'In the kitchen', spots: [spot(8.25, 2.6, Math.PI / 2), spot(8.3, 0.65, Math.PI / 2), spot(8.25, 3.3, Math.PI / 2)] },
-    { key: 'kopi', label: 'Coffee at the kopi bike', spots: [stallSpot(kopiBike, -0.5, 0.85, Math.PI), stallSpot(kopiBike, 0.5, 0.85, Math.PI), stallSpot(kopiBike, 1.45, 0.3, -Math.PI / 2)] },
-    { key: 'game', label: 'Playing ping-pong', spots: [spot(PING_PONG[0] - 1.75, PING_PONG[2], Math.PI / 2), spot(PING_PONG[0] + 1.75, PING_PONG[2], -Math.PI / 2), spot(BEANBAGS[0][0], BEANBAGS[0][2], Math.PI, true, 'Gaming on the console')] },
-    { key: 'arcade', label: 'Playing arcade games', spots: [spot(ARCADES[0][0], ARCADES[0][2] + 0.8, Math.PI), spot(ARCADES[1][0], ARCADES[1][2] + 0.8, Math.PI), spot(BEANBAGS[1][0], BEANBAGS[1][2], Math.PI, true, 'Gaming on the console')] },
-    { key: 'jalan', label: 'Taking a stroll', spots: [spot(FLAG[0] - 0.8, FLAG[2] + 0.3, Math.PI / 2), spot(building.minX + 0.95, -0.9, -Math.PI / 2), spot(1.3, -4.4, Math.PI)] },
+    { key: 'gerbang', label: 'Berjaga di gerbang', spots: [
+      spot(gateX - 1.6, maxZ - 1.3, 0),
+      spot(gateX + 1.6, maxZ - 1.3, 0),
+    ] },
+    { key: 'menara', label: 'Mengawasi dari menara', spots: [spot(maxX - 3.4, maxZ - 3.4, Math.PI / 4)] },
+    { key: 'loteng', label: 'Beristirahat di loteng gubuk', spots: [upstairs(loftX, 1.8, Math.PI)] },
   ]
 }
 
@@ -168,7 +184,7 @@ export function createLayout(agentCount: number): OfficeLayout {
     gangCenterX: -11.4 + shift,
     camera: { target: [(sceneMinX + GAME_ROOM.maxX) / 2 - 0.15, 0.6, 0.2], offset: CAMERA_OFFSET_BASE.map((value) => value * scale) as Vec3 },
     pan: { minX: sceneMinX - 0.3, maxX: 17, minZ: -7, maxZ: 11 },
-    idleStops: idleStops(building, baksoCart, kopiBike, beds),
+    idleStops: idleStops(building, beds, deskCount),
   }
 }
 
@@ -294,7 +310,7 @@ function simplify(from: [number, number], route: [number, number][], to: [number
 
 /** How long an idle agent stays at one stop (walking included). */
 export const IDLE_STOP_MS = 32_000
-export const IDLE_ROUTE = ['lounge', 'galon', 'balkon', 'game', 'bakso', 'tidur', 'jalan', 'arcade', 'lesehan', 'kopi', 'dapur', 'balkon', 'game', 'tidur']
+export const IDLE_ROUTE = ['api', 'gudang', 'gerbang', 'tidur', 'menara', 'api', 'loteng', 'gudang', 'gerbang', 'api', 'menara', 'tidur', 'gudang', 'loteng']
 
 export interface IdleAssignment { stop: IdleStop; placement: Placement }
 
