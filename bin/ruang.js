@@ -13,6 +13,7 @@ Usage: ruang [options]
        ruang profile-lock <status|off>
 
 Options:
+  -H, --host <host>  Host to listen on (default 0.0.0.0, or RUANG_HOST)
   -p, --port <port>  Port to listen on (default 3001, or RUANG_PORT)
   -v, --version      Print the version
   -h, --help         Show this help
@@ -82,6 +83,12 @@ for (let index = 0; index < args.length; index += 1) {
     const port = Number(value)
     if (!Number.isInteger(port) || port < 1 || port > 65535) { console.error(`Invalid port: ${value ?? '(missing)'}`); process.exit(2) }
     process.env.RUANG_PORT = String(port)
+    continue
+  }
+  if (arg === '-H' || arg === '--host' || arg.startsWith('--host=')) {
+    const value = arg.startsWith('--host=') ? arg.slice('--host='.length) : args[(index += 1)]
+    if (!value) { console.error('Missing host argument'); process.exit(2) }
+    process.env.RUANG_HOST = String(value)
     continue
   }
   console.error(`Unknown option: ${arg}\n\n${help}`)
