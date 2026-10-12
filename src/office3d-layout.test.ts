@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AISLE_Z, BUILDING, DESKS, ENTRANCE_X, GAME_DOOR, GAME_LANE_Z, GAME_ROOM, IDLE_ROUTE, IDLE_STOPS, IDLE_STOP_MS, LOUNGE_LANE_X, LOUNGE_SEATS, MEETING_TABLE, PAN_BOUNDS, createLayout, idlePlan, meetingSeat, SIDE_LANE_X, SIDEWALK_Z, clampTarget, idleStop, placementFor, walkPath, walkPath3, FLOOR_HEIGHT, STAIRS, BALCONY, floorOf, type Vec3 } from './office3d-layout.ts'
+import { AISLE_Z, BUILDING, DESKS, ENTRANCE_X, IDLE_ROUTE, IDLE_STOPS, IDLE_STOP_MS, LOUNGE_LANE_X, LOUNGE_SEATS, MEETING_TABLE, PAN_BOUNDS, createLayout, idlePlan, meetingSeat, SIDEWALK_Z, clampTarget, idleStop, placementFor, walkPath, walkPath3, FLOOR_HEIGHT, STAIRS, BALCONY, floorOf, type Vec3 } from './office3d-layout.ts'
 import type { OfficeStation } from './types.ts'
 
 const station = (overrides: Partial<OfficeStation>): OfficeStation => ({
@@ -53,34 +53,42 @@ describe('idle agents', () => {
     for (const [x, z] of out) if (z > BUILDING.maxZ - 0.3 && z < BUILDING.maxZ + 0.3) expect(x).toBe(ENTRANCE_X)
   })
 
-  it('reach the street food in the gang by the side lane, not through the building wall', () => {
-    const bakso = IDLE_STOPS.find((stop) => stop.key === 'bakso')!.spots[0].position
-    const path = walkPath([8.35, -0.4], [bakso[0], bakso[2]])
-    expect(path).toContainEqual([ENTRANCE_X, SIDEWALK_Z])
-    expect(path).toContainEqual([SIDE_LANE_X, SIDEWALK_Z])
-    expect(path).toContainEqual([SIDE_LANE_X, bakso[2]])
-    for (const [x, z] of path) expect(x < BUILDING.minX || z > BUILDING.maxZ || (x === ENTRANCE_X) || z === AISLE_Z || x === 8.35).toBe(true)
-    const kopi = IDLE_STOPS.find((stop) => stop.key === 'kopi')!.spots[1].position
-    expect(walkPath([bakso[0], bakso[2]], [kopi[0], kopi[2]])).toEqual([[SIDE_LANE_X, bakso[2]], [SIDE_LANE_X, kopi[2]], [kopi[0], kopi[2]]])
-    for (const stop of IDLE_STOPS.filter((item) => ['bakso', 'kopi'].includes(item.key))) for (const { position } of stop.spots) expect(position[0]).toBeLessThan(SIDE_LANE_X)
+  it('keeps every idle wander spot inside the tribe compound', () => {
+    const layout = createLayout(3)
+    const { minX, maxX, minZ, maxZ } = layout.building
+    expect(IDLE_STOPS.map((stop) => stop.key)).toEqual(['tidur', 'api', 'gudang', 'gerbang', 'menara', 'loteng'])
+    for (const stop of IDLE_STOPS) {
+      expect(stop.label.length).toBeGreaterThan(0)
+      expect(stop.spots.length).toBeGreaterThan(0)
+      for (const { position } of stop.spots) {
+        const [x, y, z] = position
+        if (y > FLOOR_HEIGHT / 2) {
+          // Sleeping floor: on the slab above the compound.
+          expect(x).toBeGreaterThanOrEqual(minX - 0.5)
+          expect(x).toBeLessThanOrEqual(maxX + 0.5)
+          expect(z).toBeGreaterThanOrEqual(minZ - 0.5)
+          expect(z).toBeLessThanOrEqual(maxZ + 0.5)
+        } else {
+          expect(x).toBeGreaterThanOrEqual(minX - 0.5)
+          expect(x).toBeLessThanOrEqual(maxX + 0.5)
+          expect(z).toBeGreaterThanOrEqual(minZ - 0.5)
+          expect(z).toBeLessThanOrEqual(maxZ + 0.5)
+        }
+      }
+    }
   })
 
-  it('enter the game room through its door, not through the lounge wall', () => {
-    for (const key of ['game', 'arcade']) {
-      for (const { position } of IDLE_STOPS.find((stop) => stop.key === key)!.spots) {
-        const path = walkPath([4, -1.8], [position[0], position[2]])
-        // Every crossing of the wall line x = GAME_ROOM.minX happens inside the door.
-        let previous: [number, number] = [4, -1.8]
-        for (const point of path) {
-          if ((previous[0] - GAME_ROOM.minX) * (point[0] - GAME_ROOM.minX) < 0) {
-            expect(point[1]).toBe(previous[1])
-            expect(point[1]).toBeGreaterThan(GAME_DOOR.fromZ)
-            expect(point[1]).toBeLessThan(GAME_DOOR.toZ)
-            expect(point[1]).toBe(GAME_LANE_Z)
-          }
-          previous = point
-        }
-        expect(path.at(-1)).toEqual([position[0], position[2]])
+  it('walks to the campfire ring without leaving the compound', () => {
+    const layout = createLayout(3)
+    const { minX, maxX, minZ, maxZ } = layout.building
+    for (const { position } of IDLE_STOPS.find((stop) => stop.key === 'api')!.spots) {
+      const path = walkPath([-2, -3.5], [position[0], position[2]])
+      expect(path.at(-1)).toEqual([position[0], position[2]])
+      for (const [x, z] of path) {
+        expect(x).toBeGreaterThanOrEqual(minX - 0.5)
+        expect(x).toBeLessThanOrEqual(maxX + 0.5)
+        expect(z).toBeGreaterThanOrEqual(minZ - 0.5)
+        expect(z).toBeLessThanOrEqual(maxZ + 0.5)
       }
     }
   })
